@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-local-ip-address = "0.5.5"
-serde = { version = "1.0.188", features = ["derive"] }
-postcard = {version = "1.0.7", features = ["alloc"] }
+local-ip-address = "0.5.6"
+serde = { version = "1.0.193", features = ["derive"] }
+postcard = {version = "1.0.8", features = ["alloc"] }
+fastrand = "2.0.1"

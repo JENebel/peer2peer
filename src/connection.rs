@@ -1,11 +1,9 @@
-use std::{net::TcpStream, sync::{Arc, Mutex, atomic::AtomicBool}, io::{Write, Read}};
+use std::{net::{TcpStream, SocketAddr, Shutdown}, sync::{Arc, Mutex}, io::{Write, Read, ErrorKind, Error}};
 use postcard::from_bytes;
-
-use crate::Message;
+use crate::{Message, TIMEOUT};
 
 #[derive(Clone)]
 pub struct Connection {
-    is_reading: Arc<AtomicBool>,
     write_stream: Arc<Mutex<TcpStream>>,
     read_stream: Arc<Mutex<TcpStream>>,
 }
@@ -13,8 +11,8 @@ pub struct Connection {
 impl Connection {
     pub fn new(stream: TcpStream) -> Self {
         let write_stream = stream.try_clone().unwrap();
+        stream.set_read_timeout(Some(TIMEOUT)).unwrap();
         Connection {
-            is_reading: Arc::new(AtomicBool::new(false)),
             write_stream: Arc::new(Mutex::new(write_stream)),
             read_stream: Arc::new(Mutex::new(stream)),
         }
@@ -39,11 +37,7 @@ impl Connection {
     }
 
     /// Blocking read message
-    pub fn read_msg(&self) -> Result<Message, std::io::Error> {
-        if self.is_reading.swap(true, std::sync::atomic::Ordering::SeqCst) {
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Already reading"));
-        }
-
+    pub fn read_msg(&self) -> Result<Message, Error> {
         let mut length_buffer = [0; 2];
         let mut stream = self.read_stream.lock().unwrap();
         stream.read_exact(&mut length_buffer)?;
@@ -52,11 +46,17 @@ impl Connection {
         let mut message_buffer = vec![0; length as usize];
         stream.read_exact(&mut message_buffer)?;
 
-        self.is_reading.store(false, std::sync::atomic::Ordering::SeqCst);
-
         match from_bytes(&message_buffer) {
             Ok(msg) => Ok(msg),
-            Err(_) => Err(std::io::Error::new(std::io::ErrorKind::Other, "Could not deserialize message"))
+            Err(_) => Err(std::io::Error::new(ErrorKind::Other, "Malformed message!"))
         }
+    }
+
+    pub fn shutdown(&self) {
+        let _ = self.write_stream.lock().unwrap().shutdown(Shutdown::Both);
+    }
+
+    pub fn peer_addr(&self) -> SocketAddr {
+        self.write_stream.lock().unwrap().peer_addr().unwrap()
     }
 }
