@@ -22,14 +22,14 @@ fn main() {
         let rest = input.trim().split_at(cmd.len()).1.trim();
         match cmd {
             "exit" => break,
-            "flood" => peer.flood(rest.to_string()),
+            "flood" => peer.flood_new(&rest.to_string()),
             _ => println!("Unknown command: {}", cmd),
         }
     }
 }
 
 #[test]
-fn auto() {
+fn stress_test() {
     let peer1 = Peer::start(Some(DEFAULT_PORT)).unwrap();
 
     thread::sleep(Duration::from_millis(100));
@@ -37,18 +37,18 @@ fn auto() {
     let mut peers: Vec<Peer> = Vec::new();
     peers.push(peer1);
 
-    for _ in 1..1000 {
-        let p = Peer::connect_to_network(None, peers[0].address()).unwrap();
+    for i in 1..10 {
+        let p = Peer::connect_to_network(None, peers[i-1].address()).unwrap();
         peers.push(p);
     }
 
     thread::sleep(Duration::from_millis(100));
 
-    peers[0].flood("Monkey".to_string());
+    peers[0].flood_new(&"Monkey".to_string());
 
     thread::sleep(Duration::from_millis(100));
 
-    peers[7].flood("Donkey".to_string());
+    //peers[7].flood("Donkey".to_string());
 
     thread::sleep(Duration::from_millis(1000));
 }

@@ -7,6 +7,7 @@ type ConnectionMap = HashMap<SocketAddr, Connection>;
 
 pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(2);
 pub const REFRESH_CONNECTIONS_INTERVAL: Duration = Duration::from_secs(60); // 1min
+pub const MSG_LOG_AGE: Duration = Duration::from_secs(60);
 pub const TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_CONNECTIONS: usize = 12;
 
@@ -15,6 +16,7 @@ pub const DEFAULT_PORT: u16 = 8998;
 pub struct Peer {
     address: Arc<SocketAddr>,
     connections: Arc<RwLock<ConnectionMap>>,
+    msg_log: Arc<RwLock<Vec<(Instant, u64)>>>,
 }
 
 impl Clone for Peer {
@@ -22,6 +24,7 @@ impl Clone for Peer {
         Peer {
             address: self.address.clone(),
             connections: self.connections.clone(),
+            msg_log: self.msg_log.clone(),
         }
     }
 }
@@ -33,6 +36,17 @@ impl Peer {
 
     pub fn connections(&self) -> usize {
         self.connections.read().unwrap().len()
+    }
+
+    /// Add the message to the log and return true if it was a new message
+    fn see_msg(&self, id: u64) -> bool {
+        let mut msg_log = self.msg_log.write().unwrap();
+        msg_log.retain(|(time, _)| time.elapsed() < MSG_LOG_AGE);
+        let new = msg_log.iter().all(|(_, msg_id)| *msg_id != id);
+        if new {
+            msg_log.push((Instant::now(), id));
+        }
+        new
     }
 
     pub fn start(port: Option<u16>) -> Result<Self, String> {
@@ -50,6 +64,7 @@ impl Peer {
         let peer = Peer {
             address: Arc::new(address),
             connections: Arc::new(RwLock::new(HashMap::new())),
+            msg_log: Arc::new(RwLock::new(Vec::new())),
         };
 
         // Start sending heartbeats and sending heartbeats
@@ -60,14 +75,11 @@ impl Peer {
         let peer_clone = peer.clone();
         thread::spawn(move || {
             for stream in listener.incoming() {
-                match stream {
-                    Ok(stream) => {
-                        let peer = peer_clone.clone();
-                        thread::spawn(move || {
-                            peer.handle_incoming(Connection::new(stream));
-                        });
-                    },
-                    Err(err) => println!("Error handling incoming connection: {}", err),
+                if let Ok(stream) = stream {
+                    let peer = peer_clone.clone();
+                    thread::spawn(move || {
+                        peer.handle_incoming(Connection::new(stream));
+                    });
                 }
             }
         });
@@ -277,6 +289,7 @@ impl Peer {
     fn handle_connection(&self, conn: Connection, address: SocketAddr) {
         println!("Succesfully connected to {}", address);
         self.connections.write().unwrap().insert(address, conn.clone());
+        use ErrorKind::*;
 
         loop {
             // Read next message and clean up if there's an error
@@ -284,12 +297,15 @@ impl Peer {
                 Ok(message) => message,
                 Err(err) => {
                     match err.kind() {
-                        std::io::ErrorKind::UnexpectedEof => {
+                        UnexpectedEof | ConnectionAborted | ConnectionReset => {
                             println!("Disconnected from {}", address);
-                            self.terminate(address);
                         }
-                        _ => println!("Error reading message from {}: {}", address, err)
+                        TimedOut => {
+                            println!("Connection to {} timed out", address);
+                        }
+                        err => println!("Error reading message from {}: {}", address, err)
                     }
+                    self.terminate(address);
                     break;
                 },
             };
@@ -326,16 +342,27 @@ impl Peer {
                     }
                 },
                 HeartBeat => { /* Just refreshes the underlying socket timout */ },
-                Flood(msg) => {
+                Flood(id, msg) => {
+                    if !self.see_msg(id) {
+                        continue
+                    }
+                    println!("Has not seen message before, flooding");
+                    self.flood(id, &msg);
                     println!("Received: {}", msg);
                 }
             }
         }
     }
 
-    pub fn flood(&self, message: String) {
+    pub fn flood_new(&self, message: &String) {
+        let id = fastrand::u64(..);
+        self.flood(id, message);
+    }
+
+    fn flood(&self, id: u64, message: &String) {
+        self.msg_log.write().unwrap().push((Instant::now(), id));
         for (_, conn) in self.connections.read().unwrap().iter() {
-            match conn.send_msg(Flood(message.clone())) {
+            match conn.send_msg(Flood(id, message.clone())) {
                 Ok(_) => {},
                 Err(err) => println!("Error sending message: {}", err),
             }

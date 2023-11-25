@@ -10,5 +10,5 @@ pub enum Message {
     PeerListRequest,
     PeerList(Vec<SocketAddr>),
     HeartBeat,
-    Flood(String),
+    Flood(u64, String),
 }
