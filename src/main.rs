@@ -2,6 +2,7 @@ use std::{net::{SocketAddr, IpAddr}, str::FromStr};
 #[allow(unused_imports)]
 use std::{thread, time::Duration};
 
+mod blockchain;
 use peer2peer::*;
 
 fn main() {
