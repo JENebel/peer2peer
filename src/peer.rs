@@ -6,7 +6,7 @@ use crate::{Connection, Message::*};
 type ConnectionMap = HashMap<SocketAddr, Connection>;
 
 pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(2);
-pub const REFRESH_CONNECTIONS_INTERVAL: Duration = Duration::from_secs(60 * 60); // 1hr
+pub const REFRESH_CONNECTIONS_INTERVAL: Duration = Duration::from_secs(60); // 1min
 pub const TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_CONNECTIONS: usize = 12;
 
